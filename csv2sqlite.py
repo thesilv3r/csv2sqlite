@@ -148,7 +148,7 @@ if __name__ == '__main__':
 Convert a CSV file to a table in a SQLite database.
 The database is created if it does not yet exist.
 ''')
-    parser.add_argument('csv_file', type=str, help='Input CSV file path')
+    parser.add_argument('csv_file', type=str, help='Input CSV file path, use forward slashes not backslashes')
     parser.add_argument('sqlite_db_file', type=str, help='Output SQLite file')
     parser.add_argument('table_name', type=str, nargs='?', help='Name of table to write to in SQLite file', default='data')
     args = parser.parse_args()
