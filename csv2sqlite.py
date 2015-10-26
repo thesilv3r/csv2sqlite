@@ -13,14 +13,16 @@ import argparse
 import csv
 import sqlite3
 
+# silv3r: if 'unicode' is undefined, it is Python v3+ so need to define basestring
 try:
+    pyVers = None
     unicode = unicode
 except NameError:
-    # silv3r: 'unicode' is undefined, fix basestring not defined error
     str = str
     unicode = str
     bytes = bytes
     basestring = (str,bytes)
+    pyvers = 3
 
 def convert(filepath_or_fileobj, dbpath, table):
     if isinstance(filepath_or_fileobj, basestring):
@@ -37,8 +39,10 @@ def convert(filepath_or_fileobj, dbpath, table):
 
     reader = csv.reader(fo, dialect)
     # silv3r: change .reader.next() command to Python v3 '__name__()' version
-    headers = [header.strip() for header in reader.__next__()]
-
+    if pyvers == 3:
+        headers = [header.strip() for header in reader.__next__()]
+    else:
+        headers = [header.strip() for header in reader.next()]
     _columns = ','.join(
         ['"%s" %s' % (header, _type) for (header,_type) in zip(headers, types)]
         )
@@ -51,6 +55,15 @@ def convert(filepath_or_fileobj, dbpath, table):
     try:
         create_query = 'CREATE TABLE %s (%s)' % (table, _columns)
         c.execute(create_query)
+    except sqlite3.OperationalError as er:
+        #Prompt user on error in SQL and ask if they want to fix
+        print ('Error in execution: ' +str(er))
+        exitprompt = input("Continue [Y/N]?")
+        if exitprompt[:1].upper() == "Y":
+            pass
+        else:
+            print (exitprompt)
+            sys.exit()
     except:
         pass
 
@@ -71,6 +84,7 @@ def convert(filepath_or_fileobj, dbpath, table):
                 else int(x) if y == 'integer'
                 else x for (x,y) in zip(row, types) ]
             c.execute(_insert_tmpl, row)
+        # silv3r: need to change exception syntax to be handled correctly, commas no longer accepted in v3 
         except ValueError as e:
             print("Unable to convert value '%s' to type '%s' on line %d" % (x, y, line), file=sys.stderr)
         except Exception as e:
@@ -85,8 +99,11 @@ def _guess_types(reader, max_sample_size=100):
     :param fileobj: read-only file object for a CSV file.
     '''
     # skip header
-    # silv3r: change .reader.next() command to Python v3 '__next__()' version
-    _headers = reader.__next__()
+    # silv3r: use appropriate next() command for Python v2/3
+    if pyvers ==3:
+        _headers = reader.__next__()
+    else:
+        _headers = reader.next()
     # we default to text for each field
     types = ['text'] * len(_headers)
     # order matters
@@ -148,7 +165,7 @@ if __name__ == '__main__':
 Convert a CSV file to a table in a SQLite database.
 The database is created if it does not yet exist.
 ''')
-    parser.add_argument('csv_file', type=str, help='Input CSV file path, use forward slashes not backslashes')
+    parser.add_argument('csv_file', type=str, help='Input CSV file path')
     parser.add_argument('sqlite_db_file', type=str, help='Output SQLite file')
     parser.add_argument('table_name', type=str, nargs='?', help='Name of table to write to in SQLite file', default='data')
     args = parser.parse_args()
