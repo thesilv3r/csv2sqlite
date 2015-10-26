@@ -5,7 +5,7 @@
 # @author: Rufus Pollock
 # Placed in the Public Domain
 # Bug fixes by Simon Heimlicher <sh@nine.ch> marked by `shz:'
-
+# Updated to function with Python v3.4 by Brian Kemp <mr.silv3r@gmail.com> marked 'silv3r:'
 from __future__ import print_function
 
 import sys
@@ -13,8 +13,16 @@ import argparse
 import csv
 import sqlite3
 
+try:
+    unicode = unicode
+except NameError:
+    # silv3r: 'unicode' is undefined, fix basestring not defined error
+    str = str
+    unicode = str
+    bytes = bytes
+    basestring = (str,bytes)
 
-def convert(filepath_or_fileobj, dbpath, table, headerspath_or_fileobj=None):
+def convert(filepath_or_fileobj, dbpath, table):
     if isinstance(filepath_or_fileobj, basestring):
         fo = open(filepath_or_fileobj, 'rU')
     else:
@@ -22,38 +30,18 @@ def convert(filepath_or_fileobj, dbpath, table, headerspath_or_fileobj=None):
 
     dialect = csv.Sniffer().sniff(fo.readline())
     fo.seek(0)
- 
-    # get  the headers
-    headers = []
-    header_given = headerspath_or_fileobj is not None
-    if header_given:
-        if isinstance(headerspath_or_fileobj, basestring):
-            ho = open(headerspath_or_fileobj, 'rU')
-        else:
-            ho = headerspath_or_fileobj
-        header_reader = csv.reader(ho, dialect)
-        headers = [header.strip() for header in header_reader.next()]
-        ho.close()
-    else:
-        reader = csv.reader(fo, dialect)
-        headers = [header.strip() for header in csv.reader(fo, dialect).next()]
-        fo.seek(0)
 
-    # guess types
-    type_reader = csv.reader(fo, dialect)
-    if not header_given:
-        type_reader.next()
-    types = _guess_types(type_reader, len(headers))
-
-    # now load data
+    reader = csv.reader(fo, dialect)
+    types = _guess_types(reader)
     fo.seek(0)
+
+    reader = csv.reader(fo, dialect)
+    # silv3r: change .reader.next() command to Python v3 '__name__()' version
+    headers = [header.strip() for header in reader.__next__()]
+
     _columns = ','.join(
         ['"%s" %s' % (header, _type) for (header,_type) in zip(headers, types)]
         )
-
-    reader = csv.reader(fo, dialect)
-    if not header_given: # Skip the header
-        reader.next()
 
     conn = sqlite3.connect(dbpath)
     # shz: fix error with non-ASCII input
@@ -83,22 +71,24 @@ def convert(filepath_or_fileobj, dbpath, table, headerspath_or_fileobj=None):
                 else int(x) if y == 'integer'
                 else x for (x,y) in zip(row, types) ]
             c.execute(_insert_tmpl, row)
-        except ValueError, e:
+        except ValueError as e:
             print("Unable to convert value '%s' to type '%s' on line %d" % (x, y, line), file=sys.stderr)
-        except Exception, e:
+        except Exception as e:
             print("Error on line %d: %s" % (line, e), file=sys.stderr)
 
 
     conn.commit()
     c.close()
 
-def _guess_types(reader, number_of_columns, max_sample_size=100):
+def _guess_types(reader, max_sample_size=100):
     '''Guess column types (as for SQLite) of CSV.
-
     :param fileobj: read-only file object for a CSV file.
     '''
+    # skip header
+    # silv3r: change .reader.next() command to Python v3 '__next__()' version
+    _headers = reader.__next__()
     # we default to text for each field
-    types = ['text'] * number_of_columns
+    types = ['text'] * len(_headers)
     # order matters
     # (order in form of type you want used in case of tie to be last)
     options = [
@@ -114,8 +104,8 @@ def _guess_types(reader, number_of_columns, max_sample_size=100):
         'text': 0
         }
 
-    results = [ dict(perresult) for x in range(number_of_columns) ]
-    sample_counts = [ 0 for x in range(number_of_columns) ]
+    results = [ dict(perresult) for x in range(len(_headers)) ]
+    sample_counts = [ 0 for x in range(len(_headers)) ]
 
     for row_index,row in enumerate(reader):
         for column,cell in enumerate(row):
@@ -158,9 +148,8 @@ if __name__ == '__main__':
 Convert a CSV file to a table in a SQLite database.
 The database is created if it does not yet exist.
 ''')
-    parser.add_argument('csv_file', type=str, help='Input CSV file path')
+    parser.add_argument('csv_file', type=str, help='Input CSV file path, use forward slashes not backslashes')
     parser.add_argument('sqlite_db_file', type=str, help='Output SQLite file')
     parser.add_argument('table_name', type=str, nargs='?', help='Name of table to write to in SQLite file', default='data')
-    parser.add_argument('--headers', type=str, nargs='?', help='Headers are read from this file, if provided.', default=None)
     args = parser.parse_args()
-    convert(args.csv_file, args.sqlite_db_file, args.table_name, args.headers)
+    convert(args.csv_file, args.sqlite_db_file, args.table_name)
